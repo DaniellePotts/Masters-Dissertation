@@ -1,14 +1,45 @@
-import numpy
+import numpy as np
 import torch
-
+import torch.optim as optim
+import torch.nn.functional as F
+import torchvision.transforms as T
 class MinecraftEnvironmentManager():
     def __init__(self, client, device, environment):
         self.device = device
-        self.env = client.make(environment).unwrapped
-        self.env.reset()
-        self.current_screen = None
+        self.client = client
+        self.environment = environment
+       
+        join_tokens = self.start_environment(environment, 10000, ["MarLo-Agent-0"])
+        
+        assert len(join_tokens) == 1
+        join_token = join_tokens[0]
+
+        self.env = client.init(join_token)
+        
+       
+        # self.env.reset()
+        # self.current_screen = None
         self.done = False
     
+    def launch_enviroment(self):
+        import malmo.minecraftbootstrap; malmo.minecraftbootstrap.launch_minecraft()
+    def start_environment(self, environment, port, agent_names):
+        client_pool = [('127.0.0.1', port)]
+        params = {"client_pool": client_pool,"agent_names" :agent_names}
+        join_tokens = self.client.make(environment,
+                      params=params)
+        return join_tokens
+    def basic_run(self):
+        observation = self.env.reset()
+
+        self.done = False
+        while not self.done:
+          _action = self.env.action_space.sample()
+          obs, reward, self.done, info = self.env.step(_action)
+          print("reward:", reward)
+          print("done:", self.done)
+          print("info", info)
+        self.env.close()
     def reset(self):
         self.env.reset()
         self.current_screen = None
