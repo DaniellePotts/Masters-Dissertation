@@ -18,7 +18,7 @@ class PlotHelper:
         plt.xlabel('Episode')
         plt.yPlotlabel('Duration')
         plt.plot(values)
-        moving_avg = get_moving_average(moving_avg_period, values)
+        moving_avg = self.get_moving_average(moving_avg_period, values)
         plt.plot(moving_avg)
         plt.pause(0.0001)
         self.check_is_python()

@@ -3,6 +3,10 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 import torchvision.transforms as T
+import logging
+logger = logging.getLogger()
+logger.disabled = True
+
 class MinecraftEnvironmentManager():
     def __init__(self, client, device, environment):
         self.device = device
@@ -15,13 +19,9 @@ class MinecraftEnvironmentManager():
         join_token = join_tokens[0]
 
         self.env = client.init(join_token)
-        
-       
-        # self.env.reset()
-        # self.current_screen = None
         self.done = False
     
-    def launch_enviroment(self):
+    def launch_environment(self):
         import malmo.minecraftbootstrap; malmo.minecraftbootstrap.launch_minecraft()
     def start_environment(self, environment, port, agent_names):
         client_pool = [('127.0.0.1', port)]
@@ -53,7 +53,7 @@ class MinecraftEnvironmentManager():
     def num_actions_available(self):
         return self.env.action_space.n
         
-    def take_action(self, action):        
+    def take_action(self, action): 
         _, reward, self.done, _ = self.env.step(action.item())
         return torch.tensor([reward], device=self.device)
     

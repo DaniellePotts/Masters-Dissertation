@@ -1,10 +1,8 @@
 import torch
 
 class Utils:
-    def __init__(self, experience):
-        self.Experience = experience
-    def extract_tensors(self, experiences):
-        batch = self.Experience(*zip(*experiences))
+    def extract_tensors(self, Experience, experiences):
+        batch = Experience(*zip(*experiences))
         
         t1 = torch.cat(batch.state)
         t2 = torch.cat(batch.action)
