@@ -4,3 +4,4 @@ MalmoPlatform/
 */*.log
 */logs
 training/plotfigs
+datasets/*
