@@ -1,7 +1,5 @@
 import sys
-
 import os
-import minerl
 
 if __name__ == "__main__":
 
