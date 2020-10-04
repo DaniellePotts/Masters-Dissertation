@@ -3,5 +3,10 @@ MalmoPlatform/
 */.ipynb_checkpoints
 */*.log
 */logs
+models/*
 training/plotfigs
 datasets/*
+training/.dataset/
+training/
+resources/
+notes.txt
