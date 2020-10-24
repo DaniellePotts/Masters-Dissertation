@@ -7,8 +7,8 @@ models/*
 training/plotfigs
 datasets/*
 training/.dataset/
-training/
-resources/
+training/*.sav
+training/*.h5
 notes.txt
 .ipynb_checkpoints
 .vscode/
