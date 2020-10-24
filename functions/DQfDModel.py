@@ -13,6 +13,8 @@ import numpy as np
 
 def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=False, clip_value=1.0,
 				learning_rate=1e-4, nstep_reg=1.0, slmc_reg=1.0, l2_reg=10e-5):
+	
+	#--build the model
 	input_img = Input(shape=(img_rows, img_cols, img_channels), name='input_img', dtype='float')
 	scale_img = Lambda(lambda x: x/255.)(input_img)
 	layer_1 = Conv2D(32, kernel_size=(8, 8), strides=(4, 4), padding='same',
@@ -44,6 +46,7 @@ def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=Fa
 	
 	cnn_model = Model(input_img, cnn_output)
 
+	# setting up input dimensions for images. observations are 64x64 imgs with 255 channels
 	input_img_dq = Input(shape=(img_rows, img_cols, img_channels), name='input_img_dq', dtype='float32')
 	input_img_nstep = Input(shape=(img_rows, img_cols, img_channels), name='input_img_nstep', dtype='float32')
 	dq_output = cnn_model(input_img_dq)
@@ -53,6 +56,7 @@ def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=Fa
 	input_expert_action = Input(shape=(2,), name='input_expert_action', dtype='int32')
 	input_expert_margin = Input(shape=(action_len,), name='input_expert_margin')
 	
+	# this is loss
 	def slmc_operator(slmc_input):
 		is_exp = slmc_input[0]
 		sa_values = slmc_input[1]
@@ -73,6 +77,7 @@ def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=Fa
 	model = Model(inputs=[input_img_dq, input_img_nstep, input_is_expert, input_expert_action, input_expert_margin],
 					outputs=[dq_output, nstep_output, slmc_output])
 	
+	# optimization
 	if clip_value is not None:
 		adam = Adam(lr=learning_rate, clipvalue=clip_value)
 	else:
@@ -84,6 +89,7 @@ def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=Fa
 					loss_weights=[1., nstep_reg, slmc_reg])
 	
 	return model
+
 def inner_train_function(train_model, target_model, exp_buffer, replay_buffer,
 						states_batch, action_batch, reward_batch,
 						next_states_batch, done_batch, nstep_rew_batch, nstep_next_batch,
@@ -152,40 +158,41 @@ def train_expert_network(train_model, target_model, replay_buffer, action_len, b
 
 	for current_step in range(train_steps):
 		print(str(current_step) + "/" + str(train_steps))
+		# sample something from the buffer
 		relay_mini_batch = replay_buffer.sample(batch_size)
 		replay_zip_batch = []
 
 		for i in relay_mini_batch:
-		replay_zip_batch.append(i['sample'])#
-		
-		exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch, \
-		exp_done_batch, exp_reward_batch, exp_nstep_next_batch = map(np.array, zip(*replay_zip_batch))
+			replay_zip_batch.append(i['sample'])#
+			
+			exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch, \
+			exp_done_batch, exp_reward_batch, exp_nstep_next_batch = map(np.array, zip(*replay_zip_batch))
 
-		
-		is_expert_input = np.ones((batch_size, 1))
+			
+			is_expert_input = np.ones((batch_size, 1))
 
-		input_exp_action = np.zeros((batch_size, 2))
-		input_exp_action[:,0] = np.arange(batch_size)
-		input_exp_action[:,1] = exp_action_batch
+			input_exp_action = np.zeros((batch_size, 2))
+			input_exp_action[:,0] = np.arange(batch_size)
+			input_exp_action[:,1] = exp_action_batch
+			
+			exp_margin = np.ones((batch_size, action_len)) * exp_margin_constant
+			exp_margin[np.arange(batch_size), exp_action_batch] = 0.
 		
-		exp_margin = np.ones((batch_size, action_len)) * exp_margin_constant
-		exp_margin[np.arange(batch_size), exp_action_batch] = 0.
-	
-		loss += inner_train_function(train_model, target_model, replay_buffer, None, 
-									exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch,
-									exp_done_batch, exp_reward_batch, exp_nstep_next_batch, is_expert_input, 
-									input_exp_action, exp_margin, action_len, relay_mini_batch, None, #
-									batch_size, gamma, nstep_gamma)
+			loss += inner_train_function(train_model, target_model, replay_buffer, None, 
+										exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch,
+										exp_done_batch, exp_reward_batch, exp_nstep_next_batch, is_expert_input, 
+										input_exp_action, exp_margin, action_len, relay_mini_batch, None, #
+										batch_size, gamma, nstep_gamma)
 		
 	#save the model every n steps
 		if current_step % update_every == 0 and current_step >= update_every:
-		print("Saving expert training weights at step {}. Loss is {}".format(current_step, loss))
-		
-		zString = "expert_model_{}_{}.h5".format(time_int, current_step)
-		train_model.save_weights(zString, overwrite=True)
-		# updating fixed Q network weights
-		target_model.load_weights(zString)
-		
+			print("Saving expert training weights at step {}. Loss is {}".format(current_step, loss))
+			
+			zString = "expert_model_{}_{}.h5".format(time_int, current_step)
+			train_model.save_weights(zString, overwrite=True)
+			# updating fixed Q network weights
+			target_model.load_weights(zString)
+			
 	print("Saving expert final weights. Loss is {}".format(loss))
 	zString = "expert_model_{}_{}.h5".format(time_int, current_step)
 	train_model.save_weights(zString, overwrite=True)

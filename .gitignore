@@ -10,3 +10,7 @@ training/.dataset/
 training/
 resources/
 notes.txt
+.ipynb_checkpoints
+.vscode/
+*.log
+VERSION

@@ -1,0 +1,9 @@
+# Requirements
+gym
+mineRL
+marlo
+tensorflow
+keras
+andas
+anyrl
+pickle
