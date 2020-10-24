@@ -1,3 +1,5 @@
+.DS_Store
+*/.DS_Store
 MalmoPlatform/
 */__pycache__/
 */.ipynb_checkpoints
@@ -9,6 +11,7 @@ datasets/*
 training/.dataset/
 training/*.sav
 training/*.h5
+resources/
 notes.txt
 .ipynb_checkpoints
 .vscode/
