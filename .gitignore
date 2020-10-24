@@ -1,3 +1,5 @@
+.DS_Store
+*/.DS_Store
 MalmoPlatform/
 */__pycache__/
 */.ipynb_checkpoints
@@ -7,7 +9,6 @@ models/*
 training/plotfigs
 datasets/*
 training/.dataset/
-training/
 resources/
 notes.txt
 .ipynb_checkpoints
