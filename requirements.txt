@@ -1,9 +1,7 @@
-# Requirements
-gym
-mineRL
-marlo
+pandas
 tensorflow
 keras
-andas
-anyrl
-pickle
+numpy
+minerl
+gym
+collections
