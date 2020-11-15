@@ -6,7 +6,7 @@ from collections import deque
 import numpy as np
 
 from anyrl.rollouts import replay
-from functions.ActionCombos import match_actions
+from ActionCombos import match_actions
 
 def populate_buffer(data, replay_buffer, combos):
 	states = parse_data(data)
@@ -93,24 +93,6 @@ def parse_data(data):
 	
 	return states
 
-def add_transition(replay_buffer, curr_states, actions, rewards, next_steps, dones, curr_state, empty_deque=False, ns=10, ns_gamma=0.99,is_done=True):
-	ns_rew_sum = 0.
-	trans = {}
-
-	if empty_deque:
-		while len(rewards) > 0:
-			for i in range(len(rewards)):
-				ns_rew_sum += rewards[i] * ns_gamma ** i
-			
-			trans['sample'] = [curr_states.popleft(), actions.popleft(), rewards.pop(0),
-											next_steps.popleft(), is_done, ns_rew_sum, curr_state]
-			replay_buffer.add_sample(trans)
-	else:
-		for i in range(ns):
-			ns_rew_sum += rewards[i] * ns_gamma ** i
-		trans['sample'] =  [curr_states.popleft(), actions.popleft(), rewards.pop(0),
-							next_steps.popleft(), dones.popleft(), ns_rew_sum, curr_state]
-		replay_buffer.add_sample(trans)
 def match_actions_with_combos(action, combos):
 	return [i for i in range(0, len(combos)) if list(combos[i]) == action][0]
 def parse_actions(actions):
@@ -124,6 +106,26 @@ def parse_actions(actions):
     else:
       parsed.append(actions[key])
   return parsed
+
+def add_transition(replay_buffer, curr_states, actions, rewards, next_steps, dones, curr_state, empty_deque=False, ns=10, ns_gamma=0.99,is_done=True):
+		ns_rew_sum = 0.
+		trans = {}
+
+		if empty_deque:
+			while len(rewards) > 0:
+				for i in range(len(rewards)):
+					ns_rew_sum += rewards[i] * ns_gamma ** i
+				
+				trans['sample'] = [curr_states.popleft(), actions.popleft(), rewards.pop(0),
+												next_steps.popleft(), is_done, ns_rew_sum, curr_state]
+				replay_buffer.add_sample(trans)
+		else:
+			for i in range(ns):
+				ns_rew_sum += rewards[i] * ns_gamma ** i
+			trans['sample'] =  [curr_states.popleft(), actions.popleft(), rewards.pop(0),
+								next_steps.popleft(), dones.popleft(), ns_rew_sum, curr_state]
+			replay_buffer.add_sample(trans)
+
 def parse_done(done):
 	if done == 'True':
 		return 1

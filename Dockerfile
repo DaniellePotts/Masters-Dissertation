@@ -1,11 +1,13 @@
-FROM python:3.6
+FROM python:3.7
 
 EXPOSE 8080
 
 ADD requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip3 install --upgrade minerl
+RUN pip3 install -r requirements.txt
 
-FROM openjdk:7
+# FROM openjdk:7
 
-ADD helloworld.py .
-CMD [ "python3", "./helloworld.py" ]
+ADD interact.py .
+ADD functions/* .
+CMD [ "python", "interact.py" ]
