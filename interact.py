@@ -9,7 +9,7 @@ if __name__ == '__main__':
     import numpy as np
     import random
 
-    model_weights_path = "./training/expert_model_1603572051_749999.h5"
+    model_weights_path = "./models/expert_model_1603572051_749999.h5"
     action_combos_treechop_path = "./resources/action_combos_treechop.sav"
     unique_angles_treechop_path = "./resources/unique_angles_treechop.sav"
 
