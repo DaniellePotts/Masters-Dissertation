@@ -1,38 +1,54 @@
+import sys
+import configparser
+
+
 if __name__ == '__main__':
 
-    import asyncio
+    try:
+        config = configparser.ConfigParser()
+        config.read('settings.ini')
 
-    from functions.Utils import load_data, save_data
-    from functions.DQfDModel import build_model, load_model
-    from functions.interact_with_env import run_agent_interactive, start_environment_interactive
+        env_to_run = 'Treechop'
+        
+        if((len(sys.argv)) > 1):
+            valid_envs = config['environments']['valid_environments'].split(',')
+            if((len([env for env in valid_envs if env.upper() == sys.argv[1].upper()]) > 0) == False):
+                raise Exception('No valid argument was chosen. Chosen argument: {0}. Valid arguments are {1}'.format(sys.argv[1], valid_envs))
+            else:
+                env_to_run
+        from functions.Utils import load_data, save_data
+        from functions.DQfDModel import build_model, load_model
+        from functions.interact_with_env import run_agent_interactive, start_environment_interactive
 
-    import numpy as np
-    import random
+        import numpy as np
+        import random
 
-    model_weights_path = "./models/expert_model_1603572051_749999.h5"
-    action_combos_treechop_path = "./resources/action_combos_treechop.sav"
-    unique_angles_treechop_path = "./resources/unique_angles_treechop.sav"
+        model_weights_path = "./models/MineRL{0}-v0_model.h5".format(env_to_run)
+        action_combos_path = "./resources-actions/action_combos_{0}.sav".format(env_to_run.lower())
+        unique_angles_path = "./resources-actions/unique_angles_{0}.sav".format(env_to_run.lower())
 
-    action_keys = ['attack',
-    'back',
-    'camera',
-    'forward',
-    'jump',
-    'left',
-    'right',
-    'sneak',
-    'sprint']
+        action_keys = config['environments']['action_keys_{0}'.format(env_to_run.lower())].split(',')
+        
+        print('loading in data...')
 
-    n_action_treechop = 35840
+        action_combos = load_data(action_combos_path)
+        n_action = len(action_combos)
+        model = load_model(n_action, model_weights_path)
+        unique_angles = load_data(unique_angles_path)
 
-    print('loading in data...')
-    model = load_model(n_action_treechop, model_weights_path)
-    action_combos = load_data(action_combos_treechop_path)
-    unique_angles_treechop = load_data(unique_angles_treechop_path)
-    print('loaded data.')
-    # env = gym.make("MineRLTreechop-v0")
-    # env.make_interactive(port=6666, realtime=True)
-    env = start_environment_interactive("MineRLTreechop-v0", 4000)
-    print('started up environment')
-    print('running interaction')
-    run_agent_interactive(env, model, action_combos, n_action_treechop, action_keys, unique_angles_treechop)
+        print('loaded data.')
+
+        env = start_environment_interactive("MineRL{0}-v0".format(env_to_run), 4000)
+
+        print('started up environment')
+        print('running interaction')
+        run_agent_interactive(env, model, action_combos, n_action, action_keys, unique_angles)
+    except:
+        print("Unexpected error:", sys.exc_info()[1])
+    #check a valid env was picked
+
+
+   
+
+    
+
