@@ -1,5 +1,6 @@
 pandas
 tensorflow
+configparser
 keras
 numpy
 gym
