@@ -8,6 +8,8 @@ MalmoPlatform/
 models/*
 training/plotfigs
 datasets/*
+*.zip
+*/*.pkl
 training/.dataset/
 training/*.sav
 training/*.h5
