@@ -21,9 +21,9 @@ if __name__ == '__main__':
         import numpy as np
         import random
 
-        model_weights_path = "./models/MineRL{0}-v0_model.h5".format(env_to_run)
-        action_combos_path = "./resources-actions/action_combos_{0}.sav".format(env_to_run.lower())
-        unique_angles_path = "./resources-actions/unique_angles_{0}.sav".format(env_to_run.lower())
+        model_weights_path = "./app/models/MineRL{0}-v0_model.h5".format(env_to_run)
+        action_combos_path = "./app/resources-actions/action_combos_{0}.sav".format(env_to_run.lower())
+        unique_angles_path = "./app/resources-actions/unique_angles_{0}.sav".format(env_to_run.lower())
 
         action_keys = ['attack','back','camera','forward','jump','left','right','sneak','sprint']
         

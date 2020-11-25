@@ -39,14 +39,15 @@ def run_rl_agent(env, model, action_combos, n_action, action_keys, unique_angles
     done = False
     prev_obs = []
     episode = 1
+
+    waitForMax = 40
     while not done:
         action = get_agent_action(env, model, curr_obs, action_combos, n_action, action_keys, unique_angles_treechop)
+        waitForStep = 1
 
-        curr_obs, reward, done, _ = env.step(action)
-        
-#         if episode > 10:
-#             add_transition(rep_buffer, nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque,
-#                            nstep_done_deque, curr_obs, False, nsteps, nstep_gamma)
+        while(waitForStep < waitForMax):
+            curr_obs, reward, done, _ = env.step(action)
+            waitForStep = waitForStep + 1
             
         episode = episode + 1
         if done: print(done)
