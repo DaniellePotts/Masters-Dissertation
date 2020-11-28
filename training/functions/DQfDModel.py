@@ -7,9 +7,16 @@ from keras.layers import Dense, Dropout, Flatten, Input, Lambda, Conv2D
 from keras.optimizers import SGD, Adam
 from keras import initializers
 from keras import regularizers
+
 import keras.backend as K
 
 import numpy as np
+
+import random
+
+from DataHelper import format_states_batch
+from ActionCombos import load_combos, get_all_action_combos, int_action_to_dict, convert_match_actions, match_batch_actions
+from Buffer import add_transition
 
 def load_model(n_action, model_path):
 	tgt_model = build_model(n_action)
@@ -106,118 +113,123 @@ def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=Tr
   return model
 
 def inner_train_function(train_model, target_model, exp_buffer, replay_buffer,
-						states_batch, action_batch, reward_batch,
-						next_states_batch, done_batch, nstep_rew_batch, nstep_next_batch,
-						is_expert_input, expert_action_batch, expert_margin,
-						action_len, exp_minibatch, minibatch,
-						batch_size=32, gamma=0.99, nstep_gamma=0.99, exp_batch_size=8):
+                         states_batch, action_batch, reward_batch,
+                         next_states_batch, done_batch, nstep_rew_batch, nstep_next_batch,
+                         is_expert_input, expert_action_batch, expert_margin,
+                         action_len, exp_minibatch, minibatch,
+                         batch_size=32, gamma=0.99, nstep_gamma=0.99, exp_batch_size=8):
+  
+  empty_batch_by_one = np.zeros((batch_size, 1))
+  empty_action_batch = np.zeros((batch_size, 2))
+  empty_action_batch[:,0] = np.arange(batch_size)
+  empty_batch_by_action_len = np.zeros((batch_size, action_len))
+  ti_tuple = tuple([i for i in range(batch_size)])
+  nstep_final_gamma = nstep_gamma ** 10
 
-	empty_batch_by_one = np.zeros((batch_size, 1))
-	empty_action_batch = np.zeros((batch_size, 2))
-	empty_action_batch[:,0] = np.arange(batch_size)
-	empty_batch_by_action_len = np.zeros((batch_size, action_len))
-	ti_tuple = tuple([i for i in range(batch_size)])
-	nstep_final_gamma = nstep_gamma ** 10
+  q_values_next_target, nstep_q_values_next_target, _ = target_model.predict(
+      [next_states_batch, nstep_next_batch,
+       empty_batch_by_one, empty_action_batch,
+       empty_batch_by_action_len]) #
+  
+  q_values_next_train, nstep_q_values_next_train, _ = train_model.predict(
+      [next_states_batch, nstep_next_batch,
+       empty_batch_by_one, empty_action_batch,
+       empty_batch_by_action_len])
+  
+  action_max = np.argmax(q_values_next_train, axis=1)
+  nstep_action_max = np.argmax(nstep_q_values_next_train, axis=1)
 
-	q_values_next_target, nstep_q_values_next_target, _ = target_model.predict(
-		[next_states_batch, nstep_next_batch,
-		empty_batch_by_one, empty_action_batch,
-		empty_batch_by_action_len]) #
-	
-	q_values_next_train, nstep_q_values_next_train, _ = train_model.predict(
-		[next_states_batch, nstep_next_batch,
-		empty_batch_by_one, empty_action_batch,
-		empty_batch_by_action_len])
-	
-	action_max = np.argmax(q_values_next_train, axis=1)
-	nstep_action_max = np.argmax(nstep_q_values_next_train, axis=1)
+  dq_targets, nstep_targets, _ = train_model.predict([states_batch, states_batch, is_expert_input,
+                                                       expert_action_batch, expert_margin])
+  
+  dq_targets[ti_tuple, action_batch] = reward_batch + \
+                                      (1 - done_batch) * gamma \
+                                      * q_values_next_target[np.arange(batch_size), action_max]
 
-	dq_targets, nstep_targets, _ = train_model.predict([states_batch, states_batch, is_expert_input,
-														expert_action_batch, expert_margin])
-	
-	dq_targets[ti_tuple, action_batch] = reward_batch + \
-										(1 - done_batch) * gamma \
-										* q_values_next_target[np.arange(batch_size), action_max]
+  nstep_targets[ti_tuple, action_batch] = nstep_rew_batch + \
+                                          (1 - done_batch) * nstep_final_gamma \
+                                          * nstep_q_values_next_target[np.arange(batch_size), nstep_action_max]
 
-	nstep_targets[ti_tuple, action_batch] = nstep_rew_batch + \
-											(1 - done_batch) * nstep_final_gamma \
-											* nstep_q_values_next_target[np.arange(batch_size), nstep_action_max]
+  dq_pred, nstep_pred, slmc_pred = train_model.predict_on_batch([states_batch, states_batch,
+                                                                 is_expert_input, expert_action_batch, expert_margin])
+  
+  dq_loss = np.square(dq_pred[np.arange(batch_size),action_batch]-dq_targets[np.arange(batch_size),action_batch])
+  nstep_loss = np.square(nstep_pred[np.arange(batch_size), action_batch] - nstep_targets[np.arange(batch_size), action_batch])
 
-	dq_pred, nstep_pred, slmc_pred = train_model.predict_on_batch([states_batch, states_batch,
-																	is_expert_input, expert_action_batch, expert_margin])
-	
-	dq_loss = np.square(dq_pred[np.arange(batch_size),action_batch]-dq_targets[np.arange(batch_size),action_batch])
-	nstep_loss = np.square(nstep_pred[np.arange(batch_size), action_batch] - nstep_targets[np.arange(batch_size), action_batch])
+  loss = train_model.train_on_batch([states_batch, states_batch, is_expert_input, expert_action_batch, expert_margin],
+                                    [dq_targets, nstep_targets, empty_batch_by_one])
+  
+  dq_loss_weighted = np.reshape(dq_loss, (batch_size, 1))/np.sum(dq_loss)*loss[1] * batch_size
+  nstep_loss_weighted = np.reshape(nstep_loss, (batch_size, 1))/np.sum(nstep_loss)*loss[2]*batch_size
 
-	loss = train_model.train_on_batch([states_batch, states_batch, is_expert_input, expert_action_batch, expert_margin],
-										[dq_targets, nstep_targets, empty_batch_by_one])
-	
-	dq_loss_weighted = np.reshape(dq_loss, (batch_size, 1))/np.sum(dq_loss)*loss[1] * batch_size
-	nstep_loss_weighted = np.reshape(nstep_loss, (batch_size, 1))/np.sum(nstep_loss)*loss[2]*batch_size
+  sample_losses = dq_loss_weighted + nstep_loss_weighted + np.abs(slmc_pred)
 
-	sample_losses = dq_loss_weighted + nstep_loss_weighted + np.abs(slmc_pred)
-
-	if replay_buffer is not None:
-		exp_buffer.update_weights(exp_minibatch, sample_losses[:exp_batch_size])
-		rep_buffer.update_weights(minibatch, sample_losses[-(batch_size-exp_batch_size):])
-	else:
-		exp_buffer.update_weights(exp_minibatch, sample_losses)
+  if replay_buffer is not None:
+    exp_buffer.update_weights(exp_minibatch, sample_losses[:exp_batch_size])
+    rep_buffer.update_weights(minibatch, sample_losses[-(batch_size-exp_batch_size):])
+  else:
+    exp_buffer.update_weights(exp_minibatch, sample_losses)
 
 
-	return np.array(loss)
+  return np.array(loss)
 
 def train_expert_network(train_model, target_model, replay_buffer, action_len, batch_size=32,
-						train_steps=10000, update_every=10000,gamma=0.99, nstep_gamma=0.99,exp_margin_constant=0.8):
-	time_int = int(time.time())
-	loss = np.zeros((4,))
+                         train_steps=10000, update_every=10000,gamma=0.99, nstep_gamma=0.99,exp_margin_constant=0.8):
+  time_int = int(time.time())
+  loss = np.zeros((4,))
+  all_loss = []
+  for current_step in range(train_steps):
+    print(str(current_step) + "/" + str(train_steps))
+    relay_mini_batch = replay_buffer.sample(batch_size)
+    replay_zip_batch = []
 
-	for current_step in range(train_steps):
-		print(str(current_step) + "/" + str(train_steps))
-		# sample something from the buffer
-		relay_mini_batch = replay_buffer.sample(batch_size)
-		replay_zip_batch = []
+    for i in relay_mini_batch:
+      replay_zip_batch.append(i['sample'])#
+    
+    exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch, \
+    exp_done_batch, exp_reward_batch, exp_nstep_next_batch = map(np.array, zip(*replay_zip_batch))
 
-		for i in relay_mini_batch:
-			replay_zip_batch.append(i['sample'])#
-			
-			exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch, \
-			exp_done_batch, exp_reward_batch, exp_nstep_next_batch = map(np.array, zip(*replay_zip_batch))
+    
+    is_expert_input = np.ones((batch_size, 1))
 
-			
-			is_expert_input = np.ones((batch_size, 1))
+    input_exp_action = np.zeros((batch_size, 2))
+    input_exp_action[:,0] = np.arange(batch_size)
+    input_exp_action[:,1] = exp_action_batch
+    # for i in range(0, batch_size):
+    #   for j in range(1, len(input_exp_action[i])):
+    #     input_exp_action[i][j] = exp_action_batch[i][j]
+    
+    exp_margin = np.ones((batch_size, action_len)) * exp_margin_constant
+    exp_margin[np.arange(batch_size), exp_action_batch] = 0.
+   
+    loss += inner_train_function(train_model, target_model, replay_buffer, None, 
+                                 exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch,
+                                 exp_done_batch, exp_reward_batch, exp_nstep_next_batch, is_expert_input, 
+                                 input_exp_action, exp_margin, action_len, relay_mini_batch, None, #
+                                 batch_size, gamma, nstep_gamma)
+    
+  #save the model every n steps
+    if current_step % update_every == 0 and current_step >= update_every:
+      print("Saving expert training weights at step {}. Loss is {}".format(current_step, loss))
+      all_loss.append(loss)
+      save_data('loss_expert_treechop.sav', loss)
+      zString = "expert_model_{}_{}.h5".format(time_int, current_step)
+      train_model.save_weights(zString, overwrite=True)
+      # updating fixed Q network weights
+      target_model.load_weights(zString)
+    
+  print("Saving expert final weights. Loss is {}".format(loss))
+  all_loss.append(loss)
+  save_data('loss_expert_treechop.sav', loss)
+  zString = "expert_model_{}_{}.h5".format(time_int, current_step)
+  train_model.save_weights(zString, overwrite=True)
 
-			input_exp_action = np.zeros((batch_size, 2))
-			input_exp_action[:,0] = np.arange(batch_size)
-			input_exp_action[:,1] = exp_action_batch
-			
-			exp_margin = np.ones((batch_size, action_len)) * exp_margin_constant
-			exp_margin[np.arange(batch_size), exp_action_batch] = 0.
-		
-			loss += inner_train_function(train_model, target_model, replay_buffer, None, 
-										exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch,
-										exp_done_batch, exp_reward_batch, exp_nstep_next_batch, is_expert_input, 
-										input_exp_action, exp_margin, action_len, relay_mini_batch, None, #
-										batch_size, gamma, nstep_gamma)
-		
-	#save the model every n steps
-		if current_step % update_every == 0 and current_step >= update_every:
-			print("Saving expert training weights at step {}. Loss is {}".format(current_step, loss))
-			
-			zString = "expert_model_{}_{}.h5".format(time_int, current_step)
-			train_model.save_weights(zString, overwrite=True)
-			# updating fixed Q network weights
-			target_model.load_weights(zString)
-			
-	print("Saving expert final weights. Loss is {}".format(loss))
-	zString = "expert_model_{}_{}.h5".format(time_int, current_step)
-	train_model.save_weights(zString, overwrite=True)
-
-	return train_model, replay_buffer
+  return train_model, replay_buffer
 	
-def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action_len,max_timesteps=1000000,min_buffer_size=20000,
+def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action_len, action_combos, unique_angles, action_keys, max_timesteps=1000000,min_buffer_size=20000,
                   epsilon_start = 0.99,epsilon_min=0.01,nsteps = 10, batch_size = 32,expert_margin=0.8,
                   gamma=0.99,nstep_gamma=0.99):
-    
+    all_loss = []
     update_every = 10000
     time_int = int(time.time())
     nstep_state_deque = deque()
@@ -241,9 +253,8 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
     exp_batch_size = int(batch_size / 4)
     gen_batch_size = batch_size - exp_batch_size
     
-    epsiode = 1
+    episode = 1
     total_rew = 0.
-    
     while train_ts < max_timesteps:
         print("{0}/{1}".format(str(train_ts), str(max_timesteps)))
         train_ts += 1
@@ -253,27 +264,30 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
             action_command = env.action_space.sample()
         else:
             temp_curr_obs = np.array(curr_obs)
-            print(type(temp_curr_obs))
-            print(temp_curr_obs.shape)
-            
             temp_curr_obs = temp_curr_obs.tolist()['pov'].reshape(1,temp_curr_obs.tolist()['pov'].shape[0], temp_curr_obs.tolist()['pov'].shape[1], temp_curr_obs.tolist()['pov'].shape[2])
             q, _, _ = train_model.predict([temp_curr_obs, temp_curr_obs,empty_by_one, empty_exp_action_by_one,empty_action_len_by_one])
-            print()
+  
             action_command = np.argmax(q)
         
         if epsilon > epsilon_min:
             epsilon -= (epsilon_start - epsilon_min) / explore_ts
 
+        action_to_store = None
+        action_to_take = None
+        
         if (isinstance(action_command, (int, np.integer))):
-            print(action_command)
-            combo = action_combos[action_command]
-            action_command = int_action_to_dict(action_keys, combo)
-        _obs, _rew, _done, _info = env.step(action_command)
+            action_to_store = action_command   
+            action_to_take = int_action_to_dict(action_keys, action_combos[action_command])
+        else:
+            action_to_store = convert_match_actions(action_command, action_combos, unique_angles)
+            action_to_take = int_action_to_dict(action_keys, action_combos[action_to_store])
         
+        _obs, _rew, _done, _info = env.step(action_to_take)
         _rew = np.sign(_rew) * np.log(1.+np.abs(_rew))
-        
+ 
         nstep_state_deque.append(curr_obs)
-        nstep_action_deque.append(action_command)
+        nstep_action_deque.append(action_to_store)
+            
         nstep_rew_list.append(_rew)
         nstep_nexts_deque.append(_obs)
         nstep_done_deque.append(_done)
@@ -300,14 +314,13 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
             curr_obs = _obs
         
         if train_ts > min_buffer_size:
-            
             exp_minibatch = exp_buffer.sample(exp_batch_size)
             exp_zip_batch = []
             
             for i in exp_minibatch:
                 exp_zip_batch.append(i['sample'])
             
-            exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batc, \
+            exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch, \
             exp_done_batch, exp_nstep_rew_batch, exp_nstep_next_batch = map(np.array, zip(*exp_zip_batch))
             
             is_expert_input = np.zeros((batch_size, 1))
@@ -326,10 +339,9 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
                 zip_batch.append(i['sample'])
             states_batch, action_batch, reward_batch, next_states_batch, done_batch, \
             nstep_rew_batch, nstep_next_batch, = map(np.array, zip(*zip_batch))
-            
-            concat_states = np.concatenate((exp_states_batch, states_batch), axis=0)
-            concat_next_states = np.concatenate((exp_next_states_batch, next_states_batch), axis=0)
-            concat_nstep_states = np.concatenate((exp_nstep_next_batch, nstep_next_batch), axis=0)
+            concat_states = np.concatenate((exp_states_batch, format_states_batch(states_batch)), axis=0)
+            concat_next_states = np.concatenate((exp_next_states_batch, format_states_batch(next_states_batch)), axis=0)
+            concat_nstep_states = np.concatenate((exp_nstep_next_batch, format_states_batch(nstep_next_batch)), axis=0)
             concat_reward = np.concatenate((exp_reward_batch, reward_batch), axis=0)
             concat_done = np.concatenate((exp_done_batch, done_batch), axis=0)
             concat_action = np.concatenate((exp_action_batch, action_batch), axis=0)
@@ -343,16 +355,22 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
                              batch_size, gamma, nstep_gamma,exp_batch_size)
             
             if train_ts % update_every == 0 and train_ts >= min_buffer_size:
+                print('Loss: {0}'.format(loss))
                 print("Saving model weights at DQfD timestep {}. Loss is {}".format(train_ts,loss))
                 loss = np.zeros((4,))
                 print("Saving model at time {0}".format(time_int))
                 zString = "../models/{0}_model.h5".format(environment)
                 train_model.save_weights(zString, overwrite=True)
+                all_loss.append(loss)
+                pickle.dump(all_loss, open("loss_2.sav", 'wb'))
                 # updating fixed Q network weights
                 target_model.load_weights(zString)
 
         #info logged and videos recorded through env
-        print("Saving final model weights. Loss is {}".format(loss))
-        print("Saving model at time {0}".format(time_int))
-        zString = "../models/{0}_model.h5".format(environment)
-        train_model.save_weights(zString, overwrite=True)
+    print('Loss: {0}'.format(loss))
+    print("Saving final model weights. Loss is {}".format(loss))
+    print("Saving model at time {0}".format(time_int))
+    zString = "../models/{0}_model.h5".format(environment)
+    all_loss.append(loss)
+    pickle.dump(all_loss, open("loss_2.sav", 'wb'))
+    train_model.save_weights(zString, overwrite=True)

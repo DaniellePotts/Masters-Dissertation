@@ -8,6 +8,27 @@ import pickle
 import pandas as pd
 import numpy as np
 
+def get_actions(actions, action_length):
+  keys = list(actions.keys())
+  all_actions = []
+
+  for i in range(0, action_length):
+    a = collections.OrderedDict()
+
+    for key in keys:
+      vals = 0
+      if isinstance(actions[key][0][i], (np.ndarray)):
+        vals = actions[key][0][i].tolist()
+      else:
+        if isinstance(actions[key][0][i],(np.int64)):
+          vals = int(actions[key][0][i])
+      
+      a[key] = vals
+
+    all_actions.append(a)
+
+  return all_actions
+
 def match_actions(action, combos):
   return [i for i in range(0, len(combos)) if list(combos[i]) == action][0]
   
@@ -73,7 +94,7 @@ def get_unique_angles(data):
   return unique_angles
 
 def load_combos(combos_file):
-	return pickle.load(open("../resources/{0}.sav".format(combos_file), 'rb'))
+	return pickle.load(open(combos_file, 'rb'))
 
 def action_dict_to_ints(action_dict, unique_angles):
     angles_df = pd.DataFrame(unique_angles, columns=['x','y'])
