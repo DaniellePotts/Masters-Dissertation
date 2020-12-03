@@ -1,6 +1,9 @@
-# Masters-Dissertation
+# Masters Dissertation
 
-Masters Dissertation solution. Focusing on Deep Reinforcement Learning in Minecraft. Utilizes [Marlo](https://www.microsoft.com/en-us/research/project/project-malmo/) and [MineRL](https://minerl.io/) API extensions. A paid version of Minecraft Java Edition is **required** for the full app to run. Tutorial on how to specifically opt for the specific Minecraft versions is below.
+Masters Dissertation solution for MSc Data Science. This solution is a Python based Reinforcement Learning AI model that attempts to interact with Minecraft in a logical way. Utilizes [Marlo](https://www.microsoft.com/en-us/research/project/project-malmo/) and [MineRL](https://minerl.io/) API extensions. The model was trained via Double Deep Q-Learning with Demonstrations and Duel learning.
+
+
+A paid version of Minecraft Java Edition is **required** for the full app to run. 
 
 # Related Resources
 
