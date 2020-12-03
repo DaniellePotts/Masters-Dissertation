@@ -61,7 +61,7 @@ def get_all_action_combos(unique_actions, unique_angles, unique_places=None):
 	return list(combinations)
 
 def match_actions(action, combos):
-  return [i for i in range(0, len(combos)) if list(combos[i]) == action][0]
+  return [i for i in range(0, len(combos)) if list(combos[i]) == list(action)][0]
 
 def int_action_to_dict(action_keys, action_ints):
     actions = {}
