@@ -1,16 +1,15 @@
 import itertools as it
 from itertools import combinations
 
-import collections
-
-import pickle
-
 import pandas as pd
 import numpy as np
 
+import collections
+
+#match action generated to on in combos
 def match_actions(action, combos):
   return [i for i in range(0, len(combos)) if list(combos[i]) == action][0]
-  
+ 
 def get_all_unique_actions(unique_actions,  unique_camera_angles, unique_places=None):
   sample_actions = collections.OrderedDict()
 
@@ -24,6 +23,7 @@ def get_all_unique_actions(unique_actions,  unique_camera_angles, unique_places=
 
   return sample_actions
 
+#parse unique placement - only used for navigate
 def parse_unique_placements(unique_actions, unique_places):
   if (len(unique_places) == 2):
     return [0, 1] #0 == none, 1 == whatever the other item is
@@ -33,15 +33,14 @@ def parse_unique_placements(unique_actions, unique_places):
       int_placements.append(i)
     return int_placements
 
+#determine all unique action combos
 def get_all_action_combos(unique_actions, unique_angles, unique_places=None):
 	sample_actions = get_all_unique_actions(unique_actions, unique_angles, unique_places)
 	allNames = sorted(sample_actions)
 	combinations = it.product(*(sample_actions[Name] for Name in allNames))
 	return list(combinations)
 
-def match_actions(action, combos):
-  return [i for i in range(0, len(combos)) if list(combos[i]) == action][0]
-
+#convert an array of ints to action to a dictionary
 def int_action_to_dict(action_keys, action_ints):
     actions = {}
     if(len(action_keys) == len(action_ints)):
@@ -53,6 +52,7 @@ def int_action_to_dict(action_keys, action_ints):
             actions['camera'] = [0.,0.]
     return actions
 
+#get all unique camera angles
 def get_unique_angles(data):
   parsed_data_length = len(data)
 
@@ -72,9 +72,7 @@ def get_unique_angles(data):
           unique_angles.append(data[i]['actions'][j]['camera'])
   return unique_angles
 
-def load_combos(combos_file):
-	return pickle.load(open("../resources/{0}.sav".format(combos_file), 'rb'))
-
+#convert an action dictionary to an array of ints
 def action_dict_to_ints(action_dict, unique_angles):
     angles_df = pd.DataFrame(unique_angles, columns=['x','y'])
     angles_x = angles_df['x'].values
@@ -95,6 +93,7 @@ def action_dict_to_ints(action_dict, unique_angles):
             actions.append(action_dict[key].item())
     return actions
 
+#match a batch of actions
 def match_batch_actions(actions, combos, unique_angles):
     converted = []
     for action in actions:
@@ -105,6 +104,7 @@ def match_batch_actions(actions, combos, unique_angles):
             converted.append(_c)
     return converted
 
+#convert and match actions to a series of combos
 def convert_match_actions(action_dict, combos, unique_angles):
     _a = action_dict_to_ints(action_dict, unique_angles)
     matched_action = match_actions(_a, combos)

@@ -11,12 +11,29 @@ import keras.backend as K
 
 import numpy as np
 
+#load in and build machine learning model
 def load_model(n_action, model_path):
-	tgt_model = build_model(n_action)
-	tgt_model.load_weights(model_path)
+	model = build_model(n_action)
+	model.load_weights(model_path)
 
-	return tgt_model
-	
+	return model
+
+#run the model and get a prediction
+def get_model_prediction(model, n_action, curr_obs):
+   #set empty arrays for feeding into model - used for appeasing model shape 
+    empty_by_one = np.zeros((1, 1))
+    empty_exp_action_by_one = np.zeros((1, 2))
+    empty_action_len_by_one = np.zeros((1, n_action))
+
+    #parse the current observation
+    temp_curr_obs = np.array(curr_obs)
+    temp_curr_obs = temp_curr_obs.tolist()['pov'].reshape(1,temp_curr_obs.tolist()['pov'].shape[0], temp_curr_obs.tolist()['pov'].shape[1], temp_curr_obs.tolist()['pov'].shape[2])
+    
+    #run the model
+    q, _, _ = model.predict([temp_curr_obs, temp_curr_obs,empty_by_one, empty_exp_action_by_one,empty_action_len_by_one])
+    return np.argmax(q)
+
+#build the ML model
 def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=True, clip_value=1.0,
                 learning_rate=1e-4, nstep_reg=1.0, slmc_reg=1.0, l2_reg=10e-5):
   input_img = Input(shape=(img_rows, img_cols, img_channels), name='input_img', dtype='float')

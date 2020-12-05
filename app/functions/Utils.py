@@ -1,6 +1,8 @@
 import pickle
 import  json
 
+import os 
+
 #Load data file
 def load_data(path):
   with open(path, 'rb') as handle:
