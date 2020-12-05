@@ -52,7 +52,6 @@ def populate_buffer(data, replay_buffer, action_combos, environment):
     next_state_deque.append(next_obs)
     dones_deque.append(done)
 
-    print(actions_deque)
     if episode_start_ts > 10:
       add_transition(replay_buffer, curr_state_deque, actions_deque, rewards, next_state_deque, dones_deque, curr_obs)
     if done == 'True':

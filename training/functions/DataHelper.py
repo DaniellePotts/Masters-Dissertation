@@ -47,7 +47,7 @@ def parse_load_data(data, environment):
           'curr_obs':{
               'obs':d['curr_states']['pov'][i]
           },
-          'next_state':{
+          'next_states':{
               'obs':d['next_states']['pov'][i]
           }
       })
@@ -56,8 +56,8 @@ def parse_load_data(data, environment):
           states[i]['curr_obs']['compassAngle']=d['curr_states']['compassAngle'][i],
           states[i]['curr_obs']['inventory']={'dirt':d['curr_states']['inventory']['dirt'][i]}
 
-          states[i]['next_state']['compassAngle']=d['next_state']['compassAngle'][i],
-          states[i]['next_state']['inventory']={'dirt':d['next_states']['inventory']['dirt'][i]}
+          states[i]['next_states']['compassAngle']=d['next_states']['compassAngle'][i],
+          states[i]['next_states']['inventory']={'dirt':d['next_states']['inventory']['dirt'][i]}
 
   
   return states

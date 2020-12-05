@@ -20,3 +20,4 @@ notes.txt
 *.log
 VERSION
 download/
+training/functions/__pycache__/
