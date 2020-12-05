@@ -58,8 +58,9 @@ def run_rl_agent(env, model, action_combos, n_action, action_keys, unique_angles
         if done: print(done)
 
 def start_environment(environment, port):
-    print('Starting up... {0}'.format(environment))
+    print('Starting up {0} environment - this may take some time'.format(environment))
     
     env = gym.make(environment)
     env.make_interactive(port=port, realtime=True)
+
     return env
