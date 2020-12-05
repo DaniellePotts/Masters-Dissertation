@@ -173,7 +173,7 @@ def inner_train_function(train_model, target_model, exp_buffer, replay_buffer,
 
   return np.array(loss)
 
-def train_expert_network(train_model, target_model, replay_buffer, action_len, batch_size=32,
+def train_expert_network(environment, train_model, target_model, replay_buffer, action_len, batch_size=32,
                          train_steps=10000, update_every=10000,gamma=0.99, nstep_gamma=0.99,exp_margin_constant=0.8):
   time_int = int(time.time())
   loss = np.zeros((4,))
@@ -195,10 +195,7 @@ def train_expert_network(train_model, target_model, replay_buffer, action_len, b
     input_exp_action = np.zeros((batch_size, 2))
     input_exp_action[:,0] = np.arange(batch_size)
     input_exp_action[:,1] = exp_action_batch
-    # for i in range(0, batch_size):
-    #   for j in range(1, len(input_exp_action[i])):
-    #     input_exp_action[i][j] = exp_action_batch[i][j]
-    
+
     exp_margin = np.ones((batch_size, action_len)) * exp_margin_constant
     exp_margin[np.arange(batch_size), exp_action_batch] = 0.
    
@@ -213,7 +210,7 @@ def train_expert_network(train_model, target_model, replay_buffer, action_len, b
       print("Saving expert training weights at step {}. Loss is {}".format(current_step, loss))
       all_loss.append(loss)
       save_data('loss_expert_treechop.sav', loss)
-      zString = "expert_model_{}_{}.h5".format(time_int, current_step)
+      zString = "expert_model_MineRL{0}-v0.h5".format(environment)
       train_model.save_weights(zString, overwrite=True)
       # updating fixed Q network weights
       target_model.load_weights(zString)
@@ -221,7 +218,7 @@ def train_expert_network(train_model, target_model, replay_buffer, action_len, b
   print("Saving expert final weights. Loss is {}".format(loss))
   all_loss.append(loss)
   save_data('loss_expert_treechop.sav', loss)
-  zString = "expert_model_{}_{}.h5".format(time_int, current_step)
+  zString = "expert_model_MineRL{0}-v0.h5".format(environment)
   train_model.save_weights(zString, overwrite=True)
 
   return train_model, replay_buffer
