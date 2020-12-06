@@ -16,7 +16,7 @@ import random
 
 from DataHelper import format_states_batch, handle_action_parsing
 from ActionCombos import get_all_action_combos, int_action_to_dict, convert_match_actions, match_batch_actions
-from Buffer import add_transition
+from Buffer import add_transition, clear_n_step_queues
 
 from Utils import save_data
 
@@ -262,10 +262,7 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
     nstep_rew_list = []
     nstep_nexts_deque = deque()
     nstep_done_deque = deque()
-    empty_by_one = np.zeros((1, 1))
-    empty_exp_action_by_one = np.zeros((1, 2))
-    empty_action_len_by_one = np.zeros((1, action_len))
-    
+  
     episode_start_ts = 0
     
     train_ts = -1
@@ -288,14 +285,7 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
         
         #if the random value is less than or equal to epsilon - generate random action
         #else get model prediction
-        if random.random() <= epsilon:
-            action_command = env.action_space.sample()
-        else:
-            temp_curr_obs = np.array(curr_obs)
-            temp_curr_obs = temp_curr_obs.tolist()['pov'].reshape(1,temp_curr_obs.tolist()['pov'].shape[0], temp_curr_obs.tolist()['pov'].shape[1], temp_curr_obs.tolist()['pov'].shape[2])
-            q, _, _ = train_model.predict([temp_curr_obs, temp_curr_obs,empty_by_one, empty_exp_action_by_one,empty_action_len_by_one])
-  
-            action_command = np.argmax(q)
+        action_command = get_next_action(env, epsilon, curr_obs, action_len, train_model)
         
         #decrease epsilon overtime
         if epsilon > epsilon_min:
@@ -305,16 +295,11 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
         action_to_take, action_to_store = handle_action_parsing(action_command, action_keys, action_combos, unique_angles)
         
         #take the action and get the new variables from the environment
-        _obs, _rew, _done, _info = env.step(action_to_take)
-        _rew = np.sign(_rew) * np.log(1.+np.abs(_rew))
+        _obs, _rew, _done, _info = take_next_step(env, action_to_take)
  
         #append values to update the replay buffer
-        nstep_state_deque.append(curr_obs)
-        nstep_action_deque.append(action_to_store)
-            
-        nstep_rew_list.append(_rew)
-        nstep_nexts_deque.append(_obs)
-        nstep_done_deque.append(_done)
+        nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque, nstep_done_deque = store_observation(curr_obs, action_to_store, _rew, _obs, _done, \
+          nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque, nstep_done_deque)
         
         #update replay buffer
         if episode_start_ts > 10:
@@ -328,53 +313,17 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
             
             curr_obs = env.reset()
             
-            nstep_state_deque.clear()
-            nstep_action_deque.clear()
-            nstep_rew_list.clear()
-            nstep_nexts_deque.clear()
-            nstep_done_deque.clear()
+            nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque, nstep_done_deque = clear_n_step_queues(nstep_state_deque, nstep_action_deque, \
+               nstep_rew_list, nstep_nexts_deque, nstep_done_deque)
             
             episode_start_ts = 0
         else:
             curr_obs = _obs
         
-        #for every n steps, run the buffer through the network
+        #run the buffer through the network
         if train_ts > min_buffer_size:
-            exp_minibatch = exp_buffer.sample(exp_batch_size)
-            exp_zip_batch = []
-            
-            for i in exp_minibatch:
-                exp_zip_batch.append(i['sample'])
-            
-            exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch, \
-            exp_done_batch, exp_nstep_rew_batch, exp_nstep_next_batch = map(np.array, zip(*exp_zip_batch))
-            
-            is_expert_input = np.zeros((batch_size, 1))
-            is_expert_input[0:exp_batch_size, 0] = 1
+            concat_states, concat_next_states, concat_nstep_states, concat_reward, concat_done, concat_action, concat_nstep_rew, is_expert_input, input_exp_action, expert_margin_array, exp_minibatch, minibatch = run_buffer_in_network(exp_buffer, exp_batch_size, batch_size, action_len, rep_buffer, gen_batch_size, expert_margin)
 
-            # expert action made into a 2d array for when tf.gather_nd is called during training
-            input_exp_action = np.zeros((batch_size, 2))
-            input_exp_action[:, 0] = np.arange(batch_size)
-            input_exp_action[0:exp_batch_size, 1] = exp_action_batch
-            expert_margin_array = np.ones((batch_size,action_len)) * expert_margin
-            expert_margin_array[np.arange(exp_batch_size),exp_action_batch] = 0.
-            
-            minibatch = rep_buffer.sample(gen_batch_size)
-            zip_batch = []
-            
-            #concat all of the expert values into batches ready to be fed through the network
-            for i in minibatch:
-                zip_batch.append(i['sample'])
-            states_batch, action_batch, reward_batch, next_states_batch, done_batch, \
-            nstep_rew_batch, nstep_next_batch, = map(np.array, zip(*zip_batch))
-            concat_states = np.concatenate((exp_states_batch, format_states_batch(states_batch)), axis=0)
-            concat_next_states = np.concatenate((exp_next_states_batch, format_states_batch(next_states_batch)), axis=0)
-            concat_nstep_states = np.concatenate((exp_nstep_next_batch, format_states_batch(nstep_next_batch)), axis=0)
-            concat_reward = np.concatenate((exp_reward_batch, reward_batch), axis=0)
-            concat_done = np.concatenate((exp_done_batch, done_batch), axis=0)
-            concat_action = np.concatenate((exp_action_batch, action_batch), axis=0)
-            concat_nstep_rew = np.concatenate((exp_nstep_rew_batch, nstep_rew_batch), axis=0)
-            
             #calculate loss
             loss += inner_train(train_model, target_model, exp_buffer, rep_buffer,
                             concat_states, concat_action, concat_reward, concat_next_states,
@@ -403,3 +352,79 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
     all_loss.append(loss)
     pickle.dump(all_loss, open("loss_2.sav", 'wb'))
     train_model.save_weights(zString, overwrite=True)
+  
+#get the next action from the model
+def get_next_action(env, epsilon, curr_obs, action_len, train_model):
+  empty_by_one = np.zeros((1, 1))
+  empty_exp_action_by_one = np.zeros((1, 2))
+  empty_action_len_by_one = np.zeros((1, action_len))
+
+  if random.random() <= epsilon:
+      action_command = env.action_space.sample()
+  else:
+      temp_curr_obs = np.array(curr_obs)
+      temp_curr_obs = temp_curr_obs.tolist()['pov'].reshape(1,temp_curr_obs.tolist()['pov'].shape[0], temp_curr_obs.tolist()['pov'].shape[1], temp_curr_obs.tolist()['pov'].shape[2])
+      q, _, _ = train_model.predict([temp_curr_obs, temp_curr_obs,empty_by_one, empty_exp_action_by_one,empty_action_len_by_one])
+
+      action_command = np.argmax(q)
+  
+  return action_command
+
+#next the next step in the environment
+def take_next_step(env, action_to_take):
+  _obs, _rew, _done, _info = env.step(action_to_take)
+  _rew = np.sign(_rew) * np.log(1.+np.abs(_rew))
+
+  return _obs, _rew, _done, _info
+
+#store observations 
+def store_observation(curr_obs, action_to_store, _rew, _obs, _done, nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque, nstep_done_deque):
+  nstep_state_deque.append(curr_obs)
+  nstep_action_deque.append(action_to_store)
+      
+  nstep_rew_list.append(_rew)
+  nstep_nexts_deque.append(_obs)
+  nstep_done_deque.append(_done)
+
+  return nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque, nstep_done_deque
+
+#runs the replay buffer through then network
+def run_buffer_in_network(exp_buffer, exp_batch_size, batch_size, action_len, rep_buffer, gen_batch_size, expert_margin):
+  exp_minibatch = exp_buffer.sample(exp_batch_size)
+  exp_zip_batch = []
+  
+  for i in exp_minibatch:
+      exp_zip_batch.append(i['sample'])
+  
+  exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch, \
+  exp_done_batch, exp_nstep_rew_batch, exp_nstep_next_batch = map(np.array, zip(*exp_zip_batch))
+  
+  is_expert_input = np.zeros((batch_size, 1))
+  is_expert_input[0:exp_batch_size, 0] = 1
+
+  # expert action made into a 2d array for when tf.gather_nd is called during training
+  input_exp_action = np.zeros((batch_size, 2))
+  input_exp_action[:, 0] = np.arange(batch_size)
+  input_exp_action[0:exp_batch_size, 1] = exp_action_batch
+  expert_margin_array = np.ones((batch_size,action_len)) * expert_margin
+  expert_margin_array[np.arange(exp_batch_size),exp_action_batch] = 0.
+  
+  minibatch = rep_buffer.sample(gen_batch_size)
+
+  zip_batch = []
+
+  for i in minibatch:
+    zip_batch.append(i['sample'])
+    states_batch, action_batch, reward_batch, next_states_batch, done_batch, \
+    nstep_rew_batch, nstep_next_batch, = map(np.array, zip(*zip_batch))
+
+    #concat both generated and expert data
+    concat_states = np.concatenate((exp_states_batch, format_states_batch(states_batch)), axis=0)
+    concat_next_states = np.concatenate((exp_next_states_batch, format_states_batch(next_states_batch)), axis=0)
+    concat_nstep_states = np.concatenate((exp_nstep_next_batch, format_states_batch(nstep_next_batch)), axis=0)
+    concat_reward = np.concatenate((exp_reward_batch, reward_batch), axis=0)
+    concat_done = np.concatenate((exp_done_batch, done_batch), axis=0)
+    concat_action = np.concatenate((exp_action_batch, action_batch), axis=0)
+    concat_nstep_rew = np.concatenate((exp_nstep_rew_batch, nstep_rew_batch), axis=0)
+
+  return concat_states, concat_next_states, concat_nstep_states, concat_reward, concat_done, concat_action, concat_nstep_rew, is_expert_input, input_exp_action, expert_margin_array, exp_minibatch, minibatch

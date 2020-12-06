@@ -102,3 +102,12 @@ def add_transition(replay_buffer, curr_states, actions, rewards, next_steps, don
 			trans['sample'] =  [curr_states.popleft(), actions.popleft(), rewards.pop(0),
 								next_steps.popleft(), dones.popleft(), ns_rew_sum, curr_state]
 			replay_buffer.add_sample(trans)
+
+def clear_n_step_queues(nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque, nstep_done_deque):
+  nstep_state_deque.clear()
+  nstep_action_deque.clear()
+  nstep_rew_list.clear()
+  nstep_nexts_deque.clear()
+  nstep_done_deque.clear()
+
+  return nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque, nstep_done_deque
