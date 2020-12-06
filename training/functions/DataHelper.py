@@ -104,7 +104,7 @@ def parse_treechop(current_state, action, next_state, reward, done, index):
       'sequence':index
   }
 
-def parse_sequences(sequences):
+def parse_minerl_data(sequences):
   sequences_copy = sequences
   reward_length = len(sequences[0]['reward'][0])
   done_length = len(sequences[0]['done'][0])
@@ -157,7 +157,7 @@ def get_rewards(rewards, rewards_length):
   
   return all_rewards
 
-def parse_demo(env):
+def extract_data(env):
     data = minerl.data.make(env)
     sequences = []
     index = 0
