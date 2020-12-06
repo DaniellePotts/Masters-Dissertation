@@ -1,7 +1,9 @@
+import numpy as np
 import minerl
 
-from ActionCombos import get_actions
+from ActionCombos import get_actions, int_action_to_dict, convert_match_actions
 
+#formats states in a batch
 def format_states_batch(states):
     final_states = []
     for i in range(len(states)):
@@ -9,6 +11,7 @@ def format_states_batch(states):
     
     return final_states
 
+#gets all unique action keys from dictionary
 def get_unique_actions(actions_dict):
   unique_actions = []
   for key in actions_dict.keys():
@@ -16,6 +19,7 @@ def get_unique_actions(actions_dict):
   
   return unique_actions
 
+#get all unique place actions from dataset. place == what can the agent build with
 def get_unique_place_actions(sequences):
   unique_places = []
   sequences_length = len(sequences)
@@ -34,6 +38,7 @@ def get_unique_place_actions(sequences):
           unique_places.append(unique_place)
   return unique_places
 
+#convert data to standard JSON format
 def parse_load_data(data, environment):
   states = []
 
@@ -62,27 +67,27 @@ def parse_load_data(data, environment):
   
   return states
 
+#parsed 'done' data. convert to bool
 def parse_done(done):
   if done == 'True':
     return 1
   else:
     return 0
 
+#parse actions
 def parse_actions(actions):
   keys = actions.keys()
   
   parsed = []
 
   for key in keys:
-    if key != 'camera':
-    #   parsed.append(actions[key][0])
-    #   parsed.append(actions[key][1])
-    # else:
+    if key == 'camera':
+      parsed.append([actions[key][0],actions[key][1]])
+    else:
       parsed.append(actions[key])
   return parsed
 
-
-
+#parses navigate environment data
 def parse_navigate(current_state, action, next_state, reward, done, index):
   return {
     'curr_state':{'pov':current_state['pov'][0], 'compassAngle':current_state['compassAngle'][0], 'inventory':current_state['inventory']},
@@ -93,7 +98,7 @@ def parse_navigate(current_state, action, next_state, reward, done, index):
     'sequence':index
   }
 
-
+#parses treechop environment data
 def parse_treechop(current_state, action, next_state, reward, done, index):
     return {
       'curr_state':{'pov':current_state['pov'][0]},
@@ -137,6 +142,7 @@ def parse_minerl_data(sequences):
   
   return sequences_2
 
+#get all done values from data
 def get_dones(dones, dones_length):
   all_done = []
 
@@ -145,6 +151,7 @@ def get_dones(dones, dones_length):
 
   return all_done
 
+#get all rewards from data
 def get_rewards(rewards, rewards_length):
   all_rewards = {
       'rewards':[],
@@ -157,17 +164,34 @@ def get_rewards(rewards, rewards_length):
   
   return all_rewards
 
+#extracts data from the MineRL API format
 def extract_data(env):
-    data = minerl.data.make(env)
-    sequences = []
-    index = 0
+  data = minerl.data.make(env)
+  sequences = []
+  index = 0
 
-    for current_state, action, reward, next_state, done \
-        in data.batch_iter(
-            batch_size=1, num_epochs=1, seq_len=32):
-            #  if ("navigate" in env.lower()):
-            #    sequences.append(parse_navigate(current_state, action, next_state, reward, done, index))
-            #  elif ("treechop" in env.lower()):
-            sequences.append(parse_treechop(current_state, action, next_state, reward, done, index))
-            index = index + 1
-    return sequences
+  for current_state, action, reward, next_state, done \
+    in data.batch_iter(batch_size=1, num_epochs=1, seq_len=32):
+      if ("navigate" in env.lower()):
+        sequences.append(parse_navigate(current_state, action, next_state, reward, done, index))
+      elif ("treechop" in env.lower()):
+        sequences.append(parse_treechop(current_state, action, next_state, reward, done, index))
+      index = index + 1
+  return sequences
+
+
+#parses actions. if the action is an int it needs to be converted to a dictionary before the agent
+#can use it. if it's a dict it needs to converted to a int. the actions stored are ints, the ones
+#to take will always be dict
+def handle_action_parsing(action_command, action_keys, action_combos, unique_angles):
+  action_to_store = None
+  action_to_take = None
+
+  if (isinstance(action_command, (int, np.integer))):
+      action_to_store = action_command   
+      action_to_take = int_action_to_dict(action_keys, action_combos[action_command])
+  else:
+      action_to_store = convert_match_actions(action_command, action_combos, unique_angles)
+      action_to_take = int_action_to_dict(action_keys, action_combos[action_to_store])
+  
+  return action_to_take, action_to_store

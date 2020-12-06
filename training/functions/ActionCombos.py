@@ -93,9 +93,6 @@ def get_unique_angles(data):
           unique_angles.append(data[i]['actions'][j]['camera'])
   return unique_angles
 
-def load_combos(combos_file):
-	return pickle.load(open(combos_file, 'rb'))
-
 def action_dict_to_ints(action_dict, unique_angles):
     angles_df = pd.DataFrame(unique_angles, columns=['x','y'])
     angles_x = angles_df['x'].values

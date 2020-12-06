@@ -14,18 +14,24 @@ import numpy as np
 
 import random
 
-from DataHelper import format_states_batch
-from ActionCombos import load_combos, get_all_action_combos, int_action_to_dict, convert_match_actions, match_batch_actions
+from DataHelper import format_states_batch, handle_action_parsing
+from ActionCombos import get_all_action_combos, int_action_to_dict, convert_match_actions, match_batch_actions
 from Buffer import add_transition
 
+from Utils import save_data
+
+#load and build model
 def load_model(n_action, model_path):
 	tgt_model = build_model(n_action)
 	tgt_model.load_weights(model_path)
 
 	return tgt_model
-	
+
+#build the model
 def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=True, clip_value=1.0,
                 learning_rate=1e-4, nstep_reg=1.0, slmc_reg=1.0, l2_reg=10e-5):
+
+  #create the model. determine the input shape: image height x image width x color channels
   input_img = Input(shape=(img_rows, img_cols, img_channels), name='input_img', dtype='float')
   scale_img = Lambda(lambda x: x/255.)(input_img)
   layer_1 = Conv2D(32, kernel_size=(8, 8), strides=(4, 4), padding='same',
@@ -47,8 +53,10 @@ def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=Tr
               kernel_regularizer=regularizers.l2(l2_reg),
               bias_regularizer=regularizers.l2(l2_reg))(x)
   
+  #construct the output layer - if it's dueling we create the duel output of values + actions
+  #else produce a standard output
   if not dueling:
-    cnn_output = Dense(action_len,
+    output_layer = Dense(action_len,
                            kernel_initializer=initializers.glorot_normal(seed=31),
                            kernel_regularizer=regularizers.l2(l2_reg),
                            bias_regularizer=regularizers.l2(l2_reg), name='cnn_output')(x)
@@ -62,14 +70,16 @@ def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=Tr
                             kernel_regularizer=regularizers.l2(l2_reg),
                             bias_regularizer=regularizers.l2(l2_reg), name='dq_actions')(x)
     
+    #return the value of the duel value and action
     def dueling_operator(duel_input):
         duel_v = duel_input[0]
         duel_a = duel_input[1]
         return duel_v + (duel_a - K.mean(duel_a, axis=1, keepdims=True))
     
-    cnn_output = Lambda(dueling_operator, name='cnn_output')([dueling_values, dueling_actions])
+    output_layer = Lambda(dueling_operator, name='cnn_output')([dueling_values, dueling_actions])
     
-  cnn_model = Model(input_img, cnn_output)
+  #finalized cnn model
+  cnn_model = Model(input_img, output_layer)
 
   input_img_dq = Input(shape=(img_rows, img_cols, img_channels), name='input_img_dq', dtype='float32')
   input_img_nstep = Input(shape=(img_rows, img_cols, img_channels), name='input_img_nstep', dtype='float32')
@@ -80,6 +90,7 @@ def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=Tr
   input_expert_action = Input(shape=(2,), name='input_expert_action', dtype='int32')
   input_expert_margin = Input(shape=(action_len,), name='input_expert_margin')
   
+  #supervised loss operator 
   def slmc_operator(slmc_input):
     is_exp = slmc_input[0]
     sa_values = slmc_input[1]
@@ -100,25 +111,29 @@ def build_model(action_len, img_rows=64, img_cols=64, img_channels=3, dueling=Tr
   model = Model(inputs=[input_img_dq, input_img_nstep, input_is_expert, input_expert_action, input_expert_margin],
                 outputs=[dq_output, nstep_output, slmc_output])
   
+  #incorporate adam optimiser
   if clip_value is not None:
     adam = Adam(lr=learning_rate, clipvalue=clip_value)
   else:
     adam = Adam(lr=learning_rate)
   
 
+  #compile the model
   model.compile(optimizer=adam,
                 loss=['mse','mse','mae'],
                 loss_weights=[1., nstep_reg, slmc_reg])
   
   return model
 
-def inner_train_function(train_model, target_model, exp_buffer, replay_buffer,
+#trains the model in both the expert model train period and during the environment training
+def inner_train(train_model, target_model, exp_buffer, replay_buffer,
                          states_batch, action_batch, reward_batch,
                          next_states_batch, done_batch, nstep_rew_batch, nstep_next_batch,
                          is_expert_input, expert_action_batch, expert_margin,
                          action_len, exp_minibatch, minibatch,
                          batch_size=32, gamma=0.99, nstep_gamma=0.99, exp_batch_size=8):
   
+  #used for the model shaping
   empty_batch_by_one = np.zeros((batch_size, 1))
   empty_action_batch = np.zeros((batch_size, 2))
   empty_action_batch[:,0] = np.arange(batch_size)
@@ -126,26 +141,31 @@ def inner_train_function(train_model, target_model, exp_buffer, replay_buffer,
   ti_tuple = tuple([i for i in range(batch_size)])
   nstep_final_gamma = nstep_gamma ** 10
 
+  #get the target model values
   q_values_next_target, nstep_q_values_next_target, _ = target_model.predict(
       [next_states_batch, nstep_next_batch,
        empty_batch_by_one, empty_action_batch,
        empty_batch_by_action_len]) #
   
+  #get the prediction from the model we are training
   q_values_next_train, nstep_q_values_next_train, _ = train_model.predict(
       [next_states_batch, nstep_next_batch,
        empty_batch_by_one, empty_action_batch,
        empty_batch_by_action_len])
   
+  #get the action with max(q) and for the next observation
   action_max = np.argmax(q_values_next_train, axis=1)
   nstep_action_max = np.argmax(nstep_q_values_next_train, axis=1)
 
+  #get and calculate the target value output for the next step
   dq_targets, nstep_targets, _ = train_model.predict([states_batch, states_batch, is_expert_input,
                                                        expert_action_batch, expert_margin])
   
   dq_targets[ti_tuple, action_batch] = reward_batch + \
                                       (1 - done_batch) * gamma \
                                       * q_values_next_target[np.arange(batch_size), action_max]
-
+  
+  #get and calculate the target value output for the next step
   nstep_targets[ti_tuple, action_batch] = nstep_rew_batch + \
                                           (1 - done_batch) * nstep_final_gamma \
                                           * nstep_q_values_next_target[np.arange(batch_size), nstep_action_max]
@@ -173,23 +193,27 @@ def inner_train_function(train_model, target_model, exp_buffer, replay_buffer,
 
   return np.array(loss)
 
+#trains the expert model
 def train_expert_network(environment, train_model, target_model, replay_buffer, action_len, batch_size=32,
                          train_steps=10000, update_every=10000,gamma=0.99, nstep_gamma=0.99,exp_margin_constant=0.8):
   time_int = int(time.time())
   loss = np.zeros((4,))
   all_loss = []
+
   for current_step in range(train_steps):
     print(str(current_step) + "/" + str(train_steps))
+    #sample a value from the replay buffer
     relay_mini_batch = replay_buffer.sample(batch_size)
     replay_zip_batch = []
 
+    #extract the data from the buffer
     for i in relay_mini_batch:
       replay_zip_batch.append(i['sample'])#
     
+    #map the data from the buffer to different variables
     exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch, \
     exp_done_batch, exp_reward_batch, exp_nstep_next_batch = map(np.array, zip(*replay_zip_batch))
 
-    
     is_expert_input = np.ones((batch_size, 1))
 
     input_exp_action = np.zeros((batch_size, 2))
@@ -199,13 +223,14 @@ def train_expert_network(environment, train_model, target_model, replay_buffer, 
     exp_margin = np.ones((batch_size, action_len)) * exp_margin_constant
     exp_margin[np.arange(batch_size), exp_action_batch] = 0.
    
-    loss += inner_train_function(train_model, target_model, replay_buffer, None, 
+    #calculate loss
+    loss += inner_train(train_model, target_model, replay_buffer, None, 
                                  exp_states_batch, exp_action_batch, exp_reward_batch, exp_next_states_batch,
                                  exp_done_batch, exp_reward_batch, exp_nstep_next_batch, is_expert_input, 
                                  input_exp_action, exp_margin, action_len, relay_mini_batch, None, #
                                  batch_size, gamma, nstep_gamma)
     
-  #save the model every n steps
+    #save the model every n steps
     if current_step % update_every == 0 and current_step >= update_every:
       print("Saving expert training weights at step {}. Loss is {}".format(current_step, loss))
       all_loss.append(loss)
@@ -222,10 +247,13 @@ def train_expert_network(environment, train_model, target_model, replay_buffer, 
   train_model.save_weights(zString, overwrite=True)
 
   return train_model, replay_buffer
-	
+
+#trains the network during environment interaction
 def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action_len, action_combos, unique_angles, action_keys, max_timesteps=1000000,min_buffer_size=20000,
                   epsilon_start = 0.99,epsilon_min=0.01,nsteps = 10, batch_size = 32,expert_margin=0.8,
                   gamma=0.99,nstep_gamma=0.99):
+    #setup empty arrays from new interactions 
+    #set value to update target network
     all_loss = []
     update_every = 10000
     time_int = int(time.time())
@@ -252,11 +280,14 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
     
     episode = 1
     total_rew = 0.
+
     while train_ts < max_timesteps:
         print("{0}/{1}".format(str(train_ts), str(max_timesteps)))
         train_ts += 1
         episode_start_ts += 1
         
+        #if the random value is less than or equal to epsilon - generate random action
+        #else get model prediction
         if random.random() <= epsilon:
             action_command = env.action_space.sample()
         else:
@@ -266,22 +297,18 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
   
             action_command = np.argmax(q)
         
+        #decrease epsilon overtime
         if epsilon > epsilon_min:
             epsilon -= (epsilon_start - epsilon_min) / explore_ts
 
-        action_to_store = None
-        action_to_take = None
+        #handles action parsing
+        action_to_take, action_to_store = handle_action_parsing(action_command, action_keys, action_combos, unique_angles)
         
-        if (isinstance(action_command, (int, np.integer))):
-            action_to_store = action_command   
-            action_to_take = int_action_to_dict(action_keys, action_combos[action_command])
-        else:
-            action_to_store = convert_match_actions(action_command, action_combos, unique_angles)
-            action_to_take = int_action_to_dict(action_keys, action_combos[action_to_store])
-        
+        #take the action and get the new variables from the environment
         _obs, _rew, _done, _info = env.step(action_to_take)
         _rew = np.sign(_rew) * np.log(1.+np.abs(_rew))
  
+        #append values to update the replay buffer
         nstep_state_deque.append(curr_obs)
         nstep_action_deque.append(action_to_store)
             
@@ -289,6 +316,7 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
         nstep_nexts_deque.append(_obs)
         nstep_done_deque.append(_done)
         
+        #update replay buffer
         if episode_start_ts > 10:
             add_transition(rep_buffer, nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque,
                            nstep_done_deque, _obs, False, nsteps, nstep_gamma)
@@ -310,6 +338,7 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
         else:
             curr_obs = _obs
         
+        #for every n steps, run the buffer through the network
         if train_ts > min_buffer_size:
             exp_minibatch = exp_buffer.sample(exp_batch_size)
             exp_zip_batch = []
@@ -322,6 +351,7 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
             
             is_expert_input = np.zeros((batch_size, 1))
             is_expert_input[0:exp_batch_size, 0] = 1
+
             # expert action made into a 2d array for when tf.gather_nd is called during training
             input_exp_action = np.zeros((batch_size, 2))
             input_exp_action[:, 0] = np.arange(batch_size)
@@ -332,6 +362,7 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
             minibatch = rep_buffer.sample(gen_batch_size)
             zip_batch = []
             
+            #concat all of the expert values into batches ready to be fed through the network
             for i in minibatch:
                 zip_batch.append(i['sample'])
             states_batch, action_batch, reward_batch, next_states_batch, done_batch, \
@@ -344,13 +375,14 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
             concat_action = np.concatenate((exp_action_batch, action_batch), axis=0)
             concat_nstep_rew = np.concatenate((exp_nstep_rew_batch, nstep_rew_batch), axis=0)
             
-            
-            loss += inner_train_function(train_model, target_model, exp_buffer, rep_buffer,
+            #calculate loss
+            loss += inner_train(train_model, target_model, exp_buffer, rep_buffer,
                             concat_states, concat_action, concat_reward, concat_next_states,
                             concat_done, concat_nstep_rew, concat_nstep_states, is_expert_input,
                             input_exp_action, expert_margin_array, action_len,exp_minibatch,minibatch,
                              batch_size, gamma, nstep_gamma,exp_batch_size)
             
+            #for every n steps save the model and record the loss
             if train_ts % update_every == 0 and train_ts >= min_buffer_size:
                 print('Loss: {0}'.format(loss))
                 print("Saving model weights at DQfD timestep {}. Loss is {}".format(train_ts,loss))
@@ -363,7 +395,7 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
                 # updating fixed Q network weights
                 target_model.load_weights(zString)
 
-        #info logged and videos recorded through env
+    #save the model and record the loss
     print('Loss: {0}'.format(loss))
     print("Saving final model weights. Loss is {}".format(loss))
     print("Saving model at time {0}".format(time_int))
