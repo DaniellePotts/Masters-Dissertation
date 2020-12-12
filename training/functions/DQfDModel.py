@@ -17,6 +17,7 @@ import random
 from DataHelper import format_states_batch
 from ActionCombos import load_combos, get_all_action_combos, int_action_to_dict, convert_match_actions, match_batch_actions
 from Buffer import add_transition
+from Utils import save_data, load_data
 
 def load_model(n_action, model_path):
 	tgt_model = build_model(n_action)
@@ -209,16 +210,16 @@ def train_expert_network(environment, train_model, target_model, replay_buffer, 
     if current_step % update_every == 0 and current_step >= update_every:
       print("Saving expert training weights at step {}. Loss is {}".format(current_step, loss))
       all_loss.append(loss)
-      save_data('loss_expert_treechop.sav', loss)
-      zString = "expert_model_MineRL{0}-v0.h5".format(environment)
+      save_data('../training-loss/loss_expert_{0}.sav'.format(environment), loss)
+      zString = "../training-models/expert_model_MineRL{0}-v0.h5".format(environment)
       train_model.save_weights(zString, overwrite=True)
       # updating fixed Q network weights
       target_model.load_weights(zString)
     
   print("Saving expert final weights. Loss is {}".format(loss))
   all_loss.append(loss)
-  save_data('loss_expert_treechop.sav', loss)
-  zString = "expert_model_MineRL{0}-v0.h5".format(environment)
+  save_data('../training-loss/loss_expert_{0}.sav'.format(environment), loss)
+  zString = "../training-models/expert_model_MineRL{0}-v0.h5".format(environment)
   train_model.save_weights(zString, overwrite=True)
 
   return train_model, replay_buffer
@@ -356,10 +357,10 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
                 print("Saving model weights at DQfD timestep {}. Loss is {}".format(train_ts,loss))
                 loss = np.zeros((4,))
                 print("Saving model at time {0}".format(time_int))
-                zString = "../models/{0}_model.h5".format(environment)
+                zString = "../training-models/{0}_model.h5".format(environment)
                 train_model.save_weights(zString, overwrite=True)
                 all_loss.append(loss)
-                pickle.dump(all_loss, open("loss_2.sav", 'wb'))
+                pickle.dump(all_loss, open("../training-loss/loss_2.sav", 'wb'))
                 # updating fixed Q network weights
                 target_model.load_weights(zString)
 
@@ -367,7 +368,7 @@ def train_network(env, train_model, target_model, exp_buffer, rep_buffer, action
     print('Loss: {0}'.format(loss))
     print("Saving final model weights. Loss is {}".format(loss))
     print("Saving model at time {0}".format(time_int))
-    zString = "../models/{0}_model.h5".format(environment)
+    zString = "../training-models/{0}_model.h5".format(environment)
     all_loss.append(loss)
-    pickle.dump(all_loss, open("loss_2.sav", 'wb'))
+    pickle.dump(all_loss, open("../training-loss/loss_2.sav", 'wb'))
     train_model.save_weights(zString, overwrite=True)
