@@ -12,13 +12,14 @@ from DataHelper import parse_actions, parse_done
 from Utils import save_data, load_data
 from DataHelper import parse_load_data, parse_actions, parse_done
 
+#populates the replace buffer
 def populate_buffer(data, replay_buffer, action_combos, environment):
   states = parse_load_data(data, environment)
-  # save_data("processed_states.json", states)
   print("Saved processed data!")
   print("Populating buffer...")
   states_length = len(states)
 
+  #create an empty set of queues from data
   curr_state_deque = deque()
   next_state_deque = deque()
   dones_deque = deque()
@@ -31,13 +32,18 @@ def populate_buffer(data, replay_buffer, action_combos, environment):
 
   parse_ts = 0
   episode_start_ts = 0
+
+  #get first observation
   curr_obs = states[0]['curr_obs']['obs']
   last_state_was_done = False
 
+  #start at 1, 1 == next obs
   for i in range(1, states_length):
     episode_start_ts += 1
     parse_ts += 1
 
+    #get the next observation and parse actions to be basic int 
+    #add data to queues 
     next_obs = states[i]['curr_obs']['obs']
     reward = states[i]['reward']
     _a = parse_actions(states[i]['action'])
@@ -52,7 +58,7 @@ def populate_buffer(data, replay_buffer, action_combos, environment):
     next_state_deque.append(next_obs)
     dones_deque.append(done)
 
-    print(actions_deque)
+    #if we have surpassed 10 or reached a 'done' state, add the data to the replay buffer from this batch
     if episode_start_ts > 10:
       add_transition(replay_buffer, curr_state_deque, actions_deque, rewards, next_state_deque, dones_deque, curr_obs)
     if done == 'True':
@@ -60,6 +66,7 @@ def populate_buffer(data, replay_buffer, action_combos, environment):
       curr_obs = states[(i + 1)]['curr_obs']['obs']
       i = i + 2
 
+      #if we are at the 'done' stage - empty the queues
       curr_state_deque.clear()
       actions_deque.clear()
       rewards.clear()
@@ -70,50 +77,17 @@ def populate_buffer(data, replay_buffer, action_combos, environment):
     else:
       curr_obs = next_obs
 
+  #add any final transitions and return the buffer
   add_transition(replay_buffer, curr_state_deque, actions_deque, rewards, next_state_deque, dones_deque, curr_obs)
 
   return replay_buffer
 
-# def parse_data(data):
-# 	states = []
-
-# 	for d in data:
-# 		sequence_length = len(d['actions'])
-# 		for i in range(0, sequence_length):
-# 			states.append({
-# 				'done':d['dones'][i],
-# 				'action':d['actions'][i],
-# 				'reward':d['rewards'][i],
-# 				'curr_obs':{
-# 					'obs':d['curr_states']['pov'][i],
-# 					'compassAngle':d['curr_states']['compassAngle'][i],
-# 					'inventory':{'dirt':d['curr_states']['inventory']['dirt'][i]}
-# 				},
-# 				'next_state':{
-# 					'obs':d['next_states']['pov'][i],
-# 					'compassAngle':d['next_states']['compassAngle'][i],
-# 					'inventory':{'dirt':d['next_states']['inventory']['dirt'][i]}
-# 				}
-# 			})
-	
-# 	return states
-
-def parse_actions(actions):
-  keys = actions.keys()
-  
-  parsed = []
-
-  for key in keys:
-    if key == 'camera':
-        parsed.append([actions[key][0],actions[key][1]])
-    else:
-      parsed.append(actions[key])
-  return parsed
-
+#add a transition to the replay buffer
 def add_transition(replay_buffer, curr_states, actions, rewards, next_steps, dones, curr_state, empty_deque=False, ns=10, ns_gamma=0.99,is_done=True):
 		ns_rew_sum = 0.
 		trans = {}
 
+    #sum of the rewards of each given transition and populate the buffer
 		if empty_deque:
 			while len(rewards) > 0:
 				for i in range(len(rewards)):
@@ -128,3 +102,12 @@ def add_transition(replay_buffer, curr_states, actions, rewards, next_steps, don
 			trans['sample'] =  [curr_states.popleft(), actions.popleft(), rewards.pop(0),
 								next_steps.popleft(), dones.popleft(), ns_rew_sum, curr_state]
 			replay_buffer.add_sample(trans)
+
+def clear_n_step_queues(nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque, nstep_done_deque):
+  nstep_state_deque.clear()
+  nstep_action_deque.clear()
+  nstep_rew_list.clear()
+  nstep_nexts_deque.clear()
+  nstep_done_deque.clear()
+
+  return nstep_state_deque, nstep_action_deque, nstep_rew_list, nstep_nexts_deque, nstep_done_deque
