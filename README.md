@@ -1,4 +1,4 @@
-# Masters Dissertation
+# Masters Dissertation - Reinforcement Learning for Non-competitive Experiences
 
 Masters Dissertation solution for MSc Data Science. This solution is a Python based Reinforcement Learning AI model that attempts to interact with Minecraft in a logical way. Utilizes [Marlo](https://www.microsoft.com/en-us/research/project/project-malmo/) and [MineRL](https://minerl.io/) API extensions. The model was trained via Double Deep Q-Learning with Demonstrations and Duel learning.
 
